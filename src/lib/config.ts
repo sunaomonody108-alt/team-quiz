@@ -9,6 +9,12 @@ export const DURATION_BY_TYPE: Record<QuestionType, number> = {
 /** [確定] 問題数 */
 export const TOTAL_QUESTIONS = 20
 
+/** [確定] 問題タイプごとの問題数(4択15問・並べ替え5問) */
+export const COUNT_BY_TYPE: Record<QuestionType, number> = {
+  multiple_choice: 15,
+  ordering: 5,
+}
+
 export const DAY_IDS = ['day1', 'day2'] as const
 export type DayId = (typeof DAY_IDS)[number]
 

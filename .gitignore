@@ -3,3 +3,9 @@ dist
 .env.local
 *.log
 firestore-debug.log
+
+# 正解入りの問題ファイルは公開リポジトリに入れない
+private/
+quiz_test_*
+*_questions*.json
+*_questions*.csv

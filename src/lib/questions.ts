@@ -1,4 +1,4 @@
-import { DURATION_BY_TYPE, TOTAL_QUESTIONS } from './config'
+import { COUNT_BY_TYPE, DURATION_BY_TYPE, TOTAL_QUESTIONS } from './config'
 import type { PrivateQuestion, PublicQuestion, QuestionInput } from './types'
 
 export interface SplitQuestion {
@@ -15,6 +15,13 @@ export function validateAndSplit(input: unknown, requireExactCount = true): Spli
   if (!Array.isArray(input)) throw new Error('問題データは配列(リスト)で入力してください')
   if (requireExactCount && input.length !== TOTAL_QUESTIONS)
     throw new Error(`問題は${TOTAL_QUESTIONS}問ちょうど必要です(今は${input.length}問)`)
+  if (requireExactCount) {
+    for (const [type, count] of Object.entries(COUNT_BY_TYPE)) {
+      const n = (input as QuestionInput[]).filter((q) => q?.type === type).length
+      if (n !== count)
+        throw new Error(`${type === 'ordering' ? '並べ替え' : '4択'}は${count}問必要です(今は${n}問)`)
+    }
+  }
   const sorted = [...(input as QuestionInput[])].sort((a, b) => a.position - b.position)
   return sorted.map((q, i) => {
     const n = i + 1
@@ -56,7 +63,7 @@ export function validateAndSplit(input: unknown, requireExactCount = true): Spli
       choices,
       durationSec: DURATION_BY_TYPE[q.type],
     }
-    if (q.imageUrl) pub.imageUrl = String(q.imageUrl)
+    if (q.imageUrl) pub.imageUrl = normalizeImageUrl(String(q.imageUrl), where)
     if (q.imageAlt) pub.imageAlt = String(q.imageAlt)
     return { pub, priv }
   })
@@ -66,4 +73,18 @@ export function validateAndSplit(input: unknown, requireExactCount = true): Spli
 export function mergeForExport(pub: PublicQuestion, priv: PrivateQuestion): QuestionInput {
   const { id: _id, durationSec: _d, ...rest } = pub
   return { ...rest, ...priv }
+}
+
+/**
+ * 画像パスを整える。GitHub Pages ではアプリが /team-quiz/ の下にあるため、
+ * "/quiz-assets/q02.svg" のような先頭スラッシュ付きパスはドメイン直下を指して表示できない。
+ * 先頭の "/" や "./" を外して、アプリからの相対パス(quiz-assets/q02.svg)にする。
+ * 外部画像は https のみ許可。
+ */
+export function normalizeImageUrl(url: string, where = ''): string {
+  const u = url.trim()
+  if (/^https:\/\//i.test(u)) return u
+  if (/^[a-z][a-z0-9+.-]*:/i.test(u) || u.startsWith('//'))
+    throw new Error(`${where}: 画像は https:// か、アプリ内のパス(quiz-assets/…)で指定してください`)
+  return u.replace(/^(\.\/|\/)+/, '')
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { validateAndSplit } from '../../src/lib/questions'
+import { normalizeImageUrl, validateAndSplit } from '../../src/lib/questions'
 import { teamNameKey } from '../../src/lib/normalize'
 import { MOCK_QUESTIONS } from '../../src/mock/questions'
 
@@ -42,5 +42,32 @@ describe('チーム名の重複判定キー', () => {
   it('全角半角・大文字小文字・空白の違いは同じ名前', () => {
     expect(teamNameKey('Ｔｅａｍ　Ａ')).toBe(teamNameKey('team a'))
     expect(teamNameKey(' チーム1 ')).toBe(teamNameKey('チーム１'))
+  })
+})
+
+describe('問題の種類数と画像パス', () => {
+  it('4択15問・並べ替え5問でないと拒否', () => {
+    const qs = structuredClone(MOCK_QUESTIONS)
+    const i = qs.findIndex((q) => q.type === 'ordering')
+    qs[i] = { ...qs[i], type: 'multiple_choice', choices: qs[i].choices.slice(0, 4).concat(qs[i].choices.length < 4 ? [{ id: 'zz', label: 'z' }] : []), correctChoiceId: qs[i].choices[0].id }
+    expect(() => validateAndSplit(qs)).toThrow(/4択は15問|並べ替えは5問/)
+  })
+  it('先頭スラッシュの画像パスはアプリ相対にする(GitHub Pagesのサブパス対策)', () => {
+    expect(normalizeImageUrl('/quiz-assets/q02.svg')).toBe('quiz-assets/q02.svg')
+    expect(normalizeImageUrl('./quiz-assets/q07.svg')).toBe('quiz-assets/q07.svg')
+    expect(normalizeImageUrl('quiz-assets/q13.svg')).toBe('quiz-assets/q13.svg')
+    expect(normalizeImageUrl('https://example.com/a.png')).toBe('https://example.com/a.png')
+  })
+  it('javascript: や http: の画像は拒否', () => {
+    expect(() => normalizeImageUrl('javascript:alert(1)')).toThrow()
+    expect(() => normalizeImageUrl('http://example.com/a.png')).toThrow()
+    expect(() => normalizeImageUrl('//evil.example/a.png')).toThrow()
+  })
+  it('インポート時に画像パスが整えられ、公開データに残る', () => {
+    const qs = structuredClone(MOCK_QUESTIONS)
+    qs[1] = { ...qs[1], imageUrl: '/quiz-assets/q02.svg', imageAlt: '図' }
+    const s = validateAndSplit(qs)
+    expect(s[1].pub.imageUrl).toBe('quiz-assets/q02.svg')
+    expect(s[1].pub.imageAlt).toBe('図')
   })
 })

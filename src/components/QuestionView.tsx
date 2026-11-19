@@ -1,10 +1,12 @@
+import { CHOICE_MARKS } from '../lib/marks'
 import type { DayState, RevealDoc } from '../lib/types'
 
 type Q = NonNullable<DayState['currentQuestion']>
 
 /** 会場(プロジェクター)用の問題表示。reveal を渡したときだけ正解を強調する */
 export function QuestionView({ q, reveal }: { q: Q; reveal?: RevealDoc | null }) {
-  const mark = ['A', 'B', 'C', 'D', 'E', 'F']
+  // 問題文や画像に A〜D が出てくる問題があるので、選択肢の記号は丸数字にする
+  const mark = CHOICE_MARKS
   const correctOrder = reveal?.correctOrderIds
   return (
     <div className="space-y-6">

@@ -1,4 +1,5 @@
 import { useMemo, useRef, useState } from 'react'
+import { CHOICE_MARKS } from '../lib/marks'
 import { useParams } from 'react-router-dom'
 import { Button, Card, Field, Notice, Screen } from '../components/ui'
 import { deadlineMs } from '../lib/clock'
@@ -196,7 +197,7 @@ function AnswerPanel({ dayId, uid, day }: { dayId: string; uid: string; day: Day
                   mine ? 'bg-blue-600 text-white ring-blue-700' : 'bg-white ring-blue-200 active:bg-blue-50'
                 }`}
               >
-                <span className={mine ? 'text-white' : 'text-blue-600'}>{'ABCD'[i]}</span>
+                <span className={mine ? 'text-white' : 'text-blue-600'}>{CHOICE_MARKS[i]}</span>
                 {c.label}
               </button>
             )

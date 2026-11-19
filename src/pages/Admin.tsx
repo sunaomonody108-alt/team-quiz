@@ -219,6 +219,15 @@ function Questions({ locked }: { locked: boolean }) {
         <p className="text-sm text-slate-600">
           問題はJSON(下の形式)で一括登録します。ChatGPTに「この形式で20問作って」と頼んだ結果をそのまま貼れます。形式は README を参照。
         </p>
+        <label className="block text-sm">
+          <span className="font-bold">JSONファイルを選ぶ:</span>{' '}
+          <input type="file" accept=".json,application/json" disabled={locked} onChange={async (e) => {
+            const f = e.target.files?.[0]
+            if (f) setJson(await f.text())
+            e.target.value = ''
+          }} />
+          <span className="block text-slate-500">選ぶと下の欄に中身が入ります。確認してから「登録」を押してください。</span>
+        </label>
         <textarea className="h-40 w-full rounded-xl border-2 p-2 font-mono text-xs" value={json} onChange={(e) => setJson(e.target.value)}
           placeholder='[{"position":1,"type":"multiple_choice","prompt":"…","choices":[{"id":"a","label":"…"},…],"correctChoiceId":"a","explanation":"…"}, …]' />
         <div className="flex flex-wrap gap-2">
@@ -248,6 +257,7 @@ function Questions({ locked }: { locked: boolean }) {
               <p className="font-bold">
                 Q{pub.position} [{pub.type === 'ordering' ? '並べ替え 30秒' : '4択 20秒'}] {pub.prompt}
               </p>
+              {pub.imageUrl && <img src={pub.imageUrl} alt={pub.imageAlt ?? ''} className="my-1 h-24 rounded border bg-white object-contain" />}
               <p className="text-slate-600">
                 正解:{pub.type === 'multiple_choice' ? label(pub, priv?.correctChoiceId) : priv?.correctOrderIds?.map((id) => label(pub, id)).join(' → ')}
                 {priv?.explanation ? ` / 解説:${priv.explanation}` : ''}
