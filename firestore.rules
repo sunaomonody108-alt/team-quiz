@@ -1,0 +1,184 @@
+rules_version = '2';
+
+// =====================================================================
+// チーム対抗クイズ Security Rules
+//
+// Cloud Functions を使わない構成なので、「サーバー側の検証」はこのルールが担う。
+//  - 締切:回答は request.time(サーバー時刻)< startedAt + 制限時間 のときだけ保存できる
+//  - 回答の順序:revision が今より大きいときだけ上書きできる(古い通信が後から届いても無視)
+//  - 正解・氏名・他チームの回答:参加者は読めない
+//  - 進行状態・得点・順位:管理者(admins に登録されたアカウント)しか書けない
+//  - 1日目の正解発表は1日目のチームと管理者しか読めない(2日目のチームは読めない)
+// =====================================================================
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() { return request.auth != null; }
+    function uid() { return request.auth.uid; }
+    function isAdmin() {
+      return signedIn() && exists(/databases/$(database)/documents/admins/$(uid()));
+    }
+    function eventPath(e) { return /databases/$(database)/documents/events/$(e); }
+    function dayPath(e, d) { return /databases/$(database)/documents/events/$(e)/days/$(d); }
+    function dayData(e, d) { return get(dayPath(e, d)).data; }
+    function isTeamOf(e, d) {
+      return signedIn() && exists(/databases/$(database)/documents/events/$(e)/days/$(d)/teams/$(uid()));
+    }
+    function nonEmptyStr(v, max) { return v is string && v.size() > 0 && v.size() <= max; }
+
+    // 管理者名簿。Firebase コンソールから手で追加する(アプリからは誰も書けない)
+    match /admins/{adminUid} {
+      allow read: if signedIn() && uid() == adminUid;
+      allow write: if false;
+    }
+
+    // 時刻合わせ用(自分のドキュメントにサーバー時刻を書いて読み戻すだけ)
+    match /clockSync/{u} {
+      allow read: if signedIn() && uid() == u;
+      allow write: if signedIn() && uid() == u
+        && request.resource.data.keys().hasOnly(['t'])
+        && request.resource.data.t == request.time;
+    }
+
+    match /events/{e} {
+      // イベント名と表示設定だけ(秘密は置かない)
+      allow read: if signedIn();
+      allow write: if isAdmin();
+
+      // 問題本文も管理者のみ。参加者には「出題中の1問」だけが days/{d}.currentQuestion で届く
+      match /questionsPublic/{q} {
+        allow read: if isAdmin();
+        allow write: if isAdmin() && get(eventPath(e)).data.questionsLocked != true;
+      }
+      // 正解・解説
+      match /questionsPrivate/{q} {
+        allow read: if isAdmin();
+        allow write: if isAdmin() && get(eventPath(e)).data.questionsLocked != true;
+      }
+
+      // チーム名の重複防止。ドキュメントID = 範囲(dayId か all) + "__" + 正規化した名前
+      // 既にあると「作成」ではなく「更新」になり、参加者には許可されない → 重複登録できない
+      match /teamNames/{key} {
+        allow read: if isAdmin();
+        allow create: if signedIn()
+          && request.resource.data.keys().hasOnly(['teamId', 'dayId', 'nameKey'])
+          && request.resource.data.teamId == uid()
+          && dayData(e, request.resource.data.dayId).registrationOpen == true
+          && getAfter(/databases/$(database)/documents/events/$(e)/days/$(request.resource.data.dayId)/teams/$(uid())).data.nameKey == request.resource.data.nameKey
+          && key == (get(eventPath(e)).data.settings.teamNameScope == 'event' ? 'all' : request.resource.data.dayId)
+                    + '__' + request.resource.data.nameKey;
+        allow update, delete: if isAdmin();
+      }
+
+      match /days/{d} {
+        function day() { return dayData(e, d); }
+        function deadline() {
+          return day().startedAt + duration.value(day().currentQuestion.durationSec, 's');
+        }
+
+        allow read: if isAdmin() || isTeamOf(e, d)
+          || (signedIn() && resource.data.registrationOpen == true);
+        allow create, delete: if isAdmin();
+        allow update: if isAdmin()
+          // 出題開始時の startedAt は必ずサーバー時刻
+          && (request.resource.data.phase != 'open' || resource.data.phase == 'open'
+              || request.resource.data.startedAt == request.time)
+          // 締切への移行は、サーバー時刻で制限時間が過ぎてから
+          && (!(resource.data.phase == 'open' && request.resource.data.phase == 'closed')
+              || request.time >= resource.data.startedAt
+                   + duration.value(resource.data.currentQuestion.durationSec, 's'));
+
+        // チームの公開情報(チーム名)。他チームからは読めない
+        match /teams/{t} {
+          allow read: if isAdmin() || (signedIn() && uid() == t);
+          allow create: if signedIn() && uid() == t
+            && day().registrationOpen == true
+            && request.resource.data.keys().hasOnly(['displayName', 'nameKey', 'uid', 'dayId', 'createdAt'])
+            && nonEmptyStr(request.resource.data.displayName, 20)
+            && nonEmptyStr(request.resource.data.nameKey, 40)
+            && request.resource.data.uid == uid()
+            && request.resource.data.dayId == d
+            && request.resource.data.createdAt == request.time
+            && existsAfter(/databases/$(database)/documents/events/$(e)/days/$(d)/teamPrivate/$(t))
+            && existsAfter(/databases/$(database)/documents/events/$(e)/teamNames/$(
+                 (get(eventPath(e)).data.settings.teamNameScope == 'event' ? 'all' : d)
+                 + '__' + request.resource.data.nameKey));
+          allow update, delete: if isAdmin();
+        }
+
+        // 3人の氏名(個人情報)。本人チームと管理者だけ
+        match /teamPrivate/{t} {
+          allow read: if isAdmin() || (signedIn() && uid() == t);
+          allow create: if signedIn() && uid() == t
+            && day().registrationOpen == true
+            && request.resource.data.keys().hasOnly(['memberNames', 'createdAt'])
+            && request.resource.data.memberNames is list
+            && request.resource.data.memberNames.size() == 3
+            && nonEmptyStr(request.resource.data.memberNames[0], 20)
+            && nonEmptyStr(request.resource.data.memberNames[1], 20)
+            && nonEmptyStr(request.resource.data.memberNames[2], 20)
+            && request.resource.data.createdAt == request.time
+            && existsAfter(/databases/$(database)/documents/events/$(e)/days/$(d)/teams/$(t));
+          allow update, delete: if isAdmin();
+        }
+
+        // 回答。ID = チームID + "__" + 問題ID
+        match /answers/{aid} {
+          function validAnswer(q, a) {
+            return q.type == 'multiple_choice'
+              ? (a.keys().hasOnly(['teamId', 'questionId', 'choiceId', 'revision', 'updatedAt'])
+                  && a.choiceId is string && a.choiceId in q.choiceIds)
+              : (a.keys().hasOnly(['teamId', 'questionId', 'orderIds', 'revision', 'updatedAt'])
+                  && a.orderIds is list
+                  && a.orderIds.size() == q.choiceIds.size()
+                  && a.orderIds.hasAll(q.choiceIds));
+          }
+          allow read: if isAdmin()
+            || (signedIn() && aid.matches(uid() + '__.*'));
+          allow create, update: if signedIn()
+            && isTeamOf(e, d)
+            && request.resource.data.teamId == uid()
+            && aid == uid() + '__' + request.resource.data.questionId
+            && day().phase == 'open'
+            && day().currentQuestion.id == request.resource.data.questionId
+            && request.time < deadline()
+            && request.resource.data.updatedAt == request.time
+            && request.resource.data.revision is int
+            && (resource == null || request.resource.data.revision > resource.data.revision)
+            && validAnswer(day().currentQuestion, request.resource.data);
+          allow delete: if isAdmin();
+        }
+
+        // 各チームの正誤。正解発表(reveals)が出るまで本人も読めない
+        match /marks/{mid} {
+          allow read: if isAdmin()
+            || (signedIn() && mid == uid() + '__' + resource.data.questionId
+                && exists(/databases/$(database)/documents/events/$(e)/days/$(d)/reveals/$(resource.data.questionId)));
+          allow write: if isAdmin();
+        }
+
+        // 各チームの累計点と順位。最後に採点した問題の正解発表後にだけ本人が読める
+        match /teamResults/{t} {
+          allow read: if isAdmin()
+            || (signedIn() && uid() == t
+                && (resource.data.lastQuestionId == null
+                    || exists(/databases/$(database)/documents/events/$(e)/days/$(d)/reveals/$(resource.data.lastQuestionId))));
+          allow write: if isAdmin();
+        }
+
+        // 正解発表。その日のチームと管理者だけ(2日目のチームは1日目の分を読めない)
+        match /reveals/{q} {
+          allow read: if isAdmin() || isTeamOf(e, d);
+          allow write: if isAdmin();
+        }
+
+        // 会場に出す上位表(チーム名と点数だけ)
+        match /publicRankings/{r} {
+          allow read: if isAdmin() || isTeamOf(e, d);
+          allow write: if isAdmin();
+        }
+      }
+    }
+  }
+}
