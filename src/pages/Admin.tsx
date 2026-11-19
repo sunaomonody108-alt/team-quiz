@@ -90,8 +90,12 @@ const phaseLabel: Record<DayState['phase'], string> = {
   closed: '締切', revealed: '正解発表', interim: '途中順位', finished: '終了',
 }
 
+/** 変換で「消す」「ケス」になっても受け付ける */
+const RESET_WORDS = ['けす', '消す', 'ケス']
+
 function DayCard({ dayId }: { dayId: string }) {
   const day = useDocData<DayState>(p.day(db, E, dayId), `aday-${dayId}`)
+  const [resetWord, setResetWord] = useState('')
   const [teams, setTeams] = useState<{ id: string; name: string; members: string[]; score: number | null; rank: number | null }[] | null>(null)
   const a = useAction()
   async function loadTeams() {
@@ -147,10 +151,15 @@ function DayCard({ dayId }: { dayId: string }) {
         <summary className="cursor-pointer text-slate-500">リハーサル用:この日のデータをすべて消す</summary>
         <div className="mt-2 space-y-2">
           <p className="text-red-700">登録チーム・回答・得点・順位がすべて消え、元に戻せません。本番中は使わないでください。</p>
-          <Button variant="danger" disabled={a.busy} onClick={() => {
-            if (prompt(`${d.dayNumber}日目のデータを消すには「けす」と入力してください`) === 'けす')
-              a.run(async () => { await resetDay(db, E, dayId); setTeams(null); return 'リセットしました' })
-          }}>この日をリセット</Button>
+          {/* prompt() はスマホのアプリ内ブラウザ等で表示されないことがあるため、画面内の入力欄で確認する */}
+          <label className="block">
+            確認のため「けす」と入力:
+            <input className="ml-2 w-28 rounded-lg border-2 px-2 py-1" value={resetWord} onChange={(e) => setResetWord(e.target.value)}
+              aria-label={`${d.dayNumber}日目リセットの確認`} />
+          </label>
+          <Button variant="danger" disabled={a.busy || !RESET_WORDS.includes(resetWord.trim())} onClick={() =>
+            a.run(async () => { await resetDay(db, E, dayId); setTeams(null); setResetWord(''); return `${d.dayNumber}日目をリセットしました` })
+          }>この日をリセット</Button>
         </div>
       </details>
       {a.view}
