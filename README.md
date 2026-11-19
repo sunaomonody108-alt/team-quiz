@@ -3,9 +3,13 @@
 職場レク用の、スマホで回答するチーム対抗クイズです(設計書 v0.1 に基づく)。
 **いまは Phase 1(1日分の進行が通しでできる最小版)まで**です。
 
-- 参加者(スマホ): `…/#/join/day1`(QRコードで配布)
-- 司会者兼会場(PC+プロジェクター): `…/#/host/day1`
-- 管理画面(投影しない): `…/#/admin`
+公開URL: https://sunaomonody108-alt.github.io/team-quiz/
+
+- 参加者(スマホ): https://sunaomonody108-alt.github.io/team-quiz/#/join/day1(QRコードで配布)
+- 司会者兼会場(PC+プロジェクター): https://sunaomonody108-alt.github.io/team-quiz/#/host/day1
+- 管理画面(投影しない): https://sunaomonody108-alt.github.io/team-quiz/#/admin
+
+`main` ブランチに変更が入ると、GitHub Actions がテスト → ビルド → GitHub Pages への公開を自動で行います。
 
 ---
 
