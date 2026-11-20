@@ -1,3 +1,4 @@
+import { formatSec, TYPE_LABEL } from '../lib/config'
 import { CHOICE_MARKS } from '../lib/marks'
 import type { DayState, RevealDoc } from '../lib/types'
 
@@ -13,14 +14,28 @@ export function QuestionView({ q, reveal }: { q: Q; reveal?: RevealDoc | null })
       <div className="flex items-center gap-4">
         <span className="rounded-full bg-blue-600 px-5 py-2 text-2xl font-black text-white">第{q.position}問</span>
         <span className="rounded-full bg-blue-100 px-4 py-2 text-xl font-bold text-blue-800">
-          {q.type === 'ordering' ? '並べ替え 30秒' : '4択 20秒'}
+          {TYPE_LABEL[q.type]} {formatSec(q.durationSec)}
         </span>
       </div>
       <h2 className="text-4xl leading-snug font-black whitespace-pre-wrap text-slate-900">{q.prompt}</h2>
       {q.imageUrl && (
         <img src={q.imageUrl} alt={q.imageAlt ?? ''} className="mx-auto max-h-[40vh] rounded-2xl object-contain" />
       )}
-      {q.type === 'multiple_choice' ? (
+      {q.type === 'text_input' ? (
+        reveal ? (
+          <div className="rounded-2xl bg-emerald-500 p-6 text-center text-white">
+            <p className="text-xl font-bold">正解</p>
+            <p className="text-5xl font-black">{reveal.acceptedAnswers?.[0]}</p>
+            {(reveal.acceptedAnswers?.length ?? 0) > 1 && (
+              <p className="mt-2 text-xl">({reveal.acceptedAnswers!.slice(1).join(' / ')} も正解)</p>
+            )}
+          </div>
+        ) : (
+          <p className="rounded-2xl bg-white p-6 text-center text-3xl font-bold text-blue-700 ring-2 ring-blue-200">
+            答えをスマホに入力してください
+          </p>
+        )
+      ) : q.type === 'multiple_choice' ? (
         <div className="grid grid-cols-2 gap-4">
           {q.choices.map((c, i) => {
             const isCorrect = reveal?.correctChoiceId === c.id
@@ -70,7 +85,7 @@ export function Countdown({ remainingMs, totalSec }: { remainingMs: number; tota
   return (
     <div className="space-y-2">
       <div className={`text-center text-7xl font-black tabular-nums ${danger ? 'text-red-600' : 'text-blue-700'}`}>
-        {sec}
+        {clock(sec)}
       </div>
       <div className="h-4 overflow-hidden rounded-full bg-blue-100">
         <div
@@ -103,4 +118,9 @@ export function RankingList({ entries, title }: { entries: { rank: number; displ
       </ol>
     </div>
   )
+}
+
+/** 60秒以上は「2:05」形式 */
+export function clock(sec: number): string {
+  return sec >= 60 ? `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}` : String(sec)
 }

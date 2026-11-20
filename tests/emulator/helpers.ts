@@ -19,7 +19,7 @@ export async function makeEnv(): Promise<RulesTestEnvironment> {
 }
 
 /** 管理者・イベント・2日分・20問を用意。テストを速くするため制限時間だけ短くする */
-export async function seed(env: RulesTestEnvironment, durationSec = 1, settings = {}) {
+export async function seed(env: RulesTestEnvironment, durationSec = 1, settings = {}, questions: unknown = MOCK_QUESTIONS) {
   await env.clearFirestore()
   {
     const db = ownerDb()
@@ -32,7 +32,7 @@ export async function seed(env: RulesTestEnvironment, durationSec = 1, settings 
     })
     await setDoc(`events/${E}/days/day1`, emptyDay(1))
     await setDoc(`events/${E}/days/day2`, emptyDay(2))
-    for (const { pub, priv } of validateAndSplit(MOCK_QUESTIONS)) {
+    for (const { pub, priv } of validateAndSplit(questions)) {
       await setDoc(`events/${E}/questionsPublic/${pub.id}`, { ...pub, durationSec })
       await setDoc(`events/${E}/questionsPrivate/${pub.id}`, priv)
     }

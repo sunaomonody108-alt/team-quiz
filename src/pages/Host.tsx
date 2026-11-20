@@ -1,3 +1,4 @@
+import { interimPositions } from '../lib/config'
 import { QRCodeSVG } from 'qrcode.react'
 import { useEffect, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
@@ -96,7 +97,7 @@ function HostScreen({ dayId, uid }: { dayId: string; uid: string }) {
         </>
       )}
       {d.phase === 'revealed' && d.currentQuestion && (
-        <Revealed dayId={dayId} day={d} interimAfter={ev.data?.settings?.interimAfter ?? [5, 10, 15]} busy={busy}
+        <Revealed dayId={dayId} day={d} interimAfter={interimPositions(d.totalQuestions, ev.data?.settings?.interimMode)} busy={busy}
           onNext={() => act(() => hostNext(db, E, dayId, expected))} />
       )}
       {d.phase === 'interim' && (

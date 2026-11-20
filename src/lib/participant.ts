@@ -49,6 +49,7 @@ export interface SubmitPayload {
   questionId: string
   choiceId?: string
   orderIds?: string[]
+  text?: string
 }
 
 /**
@@ -71,6 +72,7 @@ export async function submitAnswer(
   }
   if (payload.choiceId !== undefined) data.choiceId = payload.choiceId
   if (payload.orderIds !== undefined) data.orderIds = payload.orderIds
+  if (payload.text !== undefined) data.text = payload.text
   await setDoc(p.answer(db, eventId, dayId, answerDocId(uid, payload.questionId)), data)
 }
 

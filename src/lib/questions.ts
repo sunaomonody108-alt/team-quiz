@@ -1,4 +1,5 @@
-import { COUNT_BY_TYPE, DURATION_BY_TYPE, TOTAL_QUESTIONS } from './config'
+import { DURATION_BY_TYPE, MAX_DURATION_SEC, MAX_QUESTIONS, MAX_TEXT_ANSWER, MIN_DURATION_SEC, MIN_QUESTIONS } from './config'
+import { answerKey } from './normalize'
 import type { PrivateQuestion, PublicQuestion, QuestionInput } from './types'
 
 export interface SplitQuestion {
@@ -8,28 +9,22 @@ export interface SplitQuestion {
 
 /**
  * インポートされた問題を検証し、公開部分と非公開部分に分ける。
- * 制限時間は問題タイプから自動で決める(入力値は無視)。
+ * 制限時間は durationSec(秒)があればそれを使い、無ければ問題タイプの初期値(4択20秒・並べ替え30秒)。
  * 問題IDは q01〜q20 に振り直す(IDから正解が推測できないよう、選択肢IDも c1〜c4 等に振り直す)。
  */
 export function validateAndSplit(input: unknown, requireExactCount = true): SplitQuestion[] {
   if (!Array.isArray(input)) throw new Error('問題データは配列(リスト)で入力してください')
-  if (requireExactCount && input.length !== TOTAL_QUESTIONS)
-    throw new Error(`問題は${TOTAL_QUESTIONS}問ちょうど必要です(今は${input.length}問)`)
-  if (requireExactCount) {
-    for (const [type, count] of Object.entries(COUNT_BY_TYPE)) {
-      const n = (input as QuestionInput[]).filter((q) => q?.type === type).length
-      if (n !== count)
-        throw new Error(`${type === 'ordering' ? '並べ替え' : '4択'}は${count}問必要です(今は${n}問)`)
-    }
-  }
+  if (requireExactCount && (input.length < MIN_QUESTIONS || input.length > MAX_QUESTIONS))
+    throw new Error(`問題は${MIN_QUESTIONS}〜${MAX_QUESTIONS}問にしてください(今は${input.length}問)`)
   const sorted = [...(input as QuestionInput[])].sort((a, b) => a.position - b.position)
   return sorted.map((q, i) => {
     const n = i + 1
     const where = `${n}問目`
     if (q.position !== n) throw new Error(`${where}: position は1から順番に重複なく付けてください`)
-    if (q.type !== 'multiple_choice' && q.type !== 'ordering')
-      throw new Error(`${where}: type は multiple_choice か ordering です`)
+    if (q.type !== 'multiple_choice' && q.type !== 'ordering' && q.type !== 'text_input')
+      throw new Error(`${where}: type は multiple_choice / ordering / text_input のどれかです`)
     if (!q.prompt || typeof q.prompt !== 'string') throw new Error(`${where}: 問題文(prompt)がありません`)
+    if (q.type === 'text_input') return splitText(q, n, where)
     if (!Array.isArray(q.choices)) throw new Error(`${where}: choices がありません`)
     if (q.type === 'multiple_choice' && q.choices.length !== 4) throw new Error(`${where}: 4択は選択肢4つです`)
     if (q.type === 'ordering' && (q.choices.length < 3 || q.choices.length > 6))
@@ -41,9 +36,7 @@ export function validateAndSplit(input: unknown, requireExactCount = true): Spli
     const idMap = new Map(oldIds.map((id, k) => [id, `c${k + 1}`]))
     const choices = q.choices.map((c) => ({ id: idMap.get(c.id)!, label: String(c.label) }))
     const priv: PrivateQuestion = { explanation: String(q.explanation ?? '') }
-    if (q.difficulty) priv.difficulty = String(q.difficulty)
-    if (q.genre) priv.genre = String(q.genre)
-    if (q.tone) priv.tone = String(q.tone)
+    copyMeta(q, priv)
     if (q.type === 'multiple_choice') {
       if (!q.correctChoiceId || !idMap.has(q.correctChoiceId))
         throw new Error(`${where}: correctChoiceId が選択肢のIDと一致しません`)
@@ -61,17 +54,58 @@ export function validateAndSplit(input: unknown, requireExactCount = true): Spli
       type: q.type,
       prompt: q.prompt,
       choices,
-      durationSec: DURATION_BY_TYPE[q.type],
+      durationSec: durationOf(q, where),
     }
-    if (q.imageUrl) pub.imageUrl = normalizeImageUrl(String(q.imageUrl), where)
-    if (q.imageAlt) pub.imageAlt = String(q.imageAlt)
+    copyImage(q, pub, where)
     return { pub, priv }
   })
 }
 
+function copyMeta(q: QuestionInput, priv: PrivateQuestion) {
+  if (q.difficulty) priv.difficulty = String(q.difficulty)
+  if (q.genre) priv.genre = String(q.genre)
+  if (q.tone) priv.tone = String(q.tone)
+}
+
+function copyImage(q: QuestionInput, pub: PublicQuestion, where: string) {
+  if (q.imageUrl) pub.imageUrl = normalizeImageUrl(String(q.imageUrl), where)
+  if (q.imageAlt) pub.imageAlt = String(q.imageAlt)
+}
+
+/** 自由記述: 選択肢なし。正解は acceptedAnswers(1つ以上)。answer 1つだけでも可 */
+function splitText(q: QuestionInput & { answer?: unknown }, n: number, where: string): SplitQuestion {
+  const raw = q.acceptedAnswers ?? (q.answer !== undefined ? [q.answer] : undefined)
+  if (!Array.isArray(raw) || raw.length === 0)
+    throw new Error(`${where}: 自由記述は acceptedAnswers(正解の書き方のリスト)が必要です`)
+  const accepted = raw.map((a) => String(a ?? '').trim())
+  if (accepted.some((a) => !answerKey(a))) throw new Error(`${where}: 空の正解があります`)
+  if (accepted.some((a) => a.length > MAX_TEXT_ANSWER))
+    throw new Error(`${where}: 正解は${MAX_TEXT_ANSWER}文字以内にしてください`)
+  const priv: PrivateQuestion = { explanation: String(q.explanation ?? ''), acceptedAnswers: accepted }
+  copyMeta(q, priv)
+  const pub: PublicQuestion = {
+    id: `q${String(n).padStart(2, '0')}`,
+    position: n,
+    type: 'text_input',
+    prompt: q.prompt,
+    choices: [],
+    durationSec: durationOf(q, where),
+  }
+  copyImage(q, pub, where)
+  return { pub, priv }
+}
+
+function durationOf(q: QuestionInput, where: string): number {
+  if (q.durationSec === undefined || q.durationSec === null || (q.durationSec as unknown) === '') return DURATION_BY_TYPE[q.type]
+  const n = Number(q.durationSec)
+  if (!Number.isInteger(n) || n < MIN_DURATION_SEC || n > MAX_DURATION_SEC)
+    throw new Error(`${where}: durationSec(制限時間・秒)は${MIN_DURATION_SEC}〜${MAX_DURATION_SEC}の整数にしてください`)
+  return n
+}
+
 /** 編集用に公開+非公開を1つにまとめ直す(エクスポート用) */
 export function mergeForExport(pub: PublicQuestion, priv: PrivateQuestion): QuestionInput {
-  const { id: _id, durationSec: _d, ...rest } = pub
+  const { id: _id, ...rest } = pub
   return { ...rest, ...priv }
 }
 

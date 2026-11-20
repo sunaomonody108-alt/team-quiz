@@ -9,7 +9,7 @@ import {
   writeBatch,
   type Firestore,
 } from 'firebase/firestore'
-import { DEFAULT_SETTINGS } from './config'
+import { DEFAULT_SETTINGS, interimPositions } from './config'
 import { answerDocId } from './normalize'
 import { p } from './paths'
 import { competitionRank, topWithTies } from './ranking'
@@ -76,6 +76,8 @@ function toCurrent(q: PublicQuestion): DayState['currentQuestion'] {
 /** 受付を締め切って1問目の待機へ。全チームの得点表を0点で作る。問題をロックする */
 export async function startQuiz(db: Firestore, eventId: string, dayId: string) {
   const q1 = await loadPublicQuestion(db, eventId, 1)
+  // 問題数は登録済みの問題の数(5〜7問など、20問固定ではない)
+  const total = (await getDocs(p.qPubCol(db, eventId))).size
   const teams = await getDocs(p.teamCol(db, eventId, dayId))
   await runTransaction(db, async (tx) => {
     const day = (await tx.get(p.day(db, eventId, dayId))).data() as DayState | undefined
@@ -95,6 +97,7 @@ export async function startQuiz(db: Firestore, eventId: string, dayId: string) {
       registrationOpen: false,
       phase: 'waiting',
       questionPosition: 1,
+      totalQuestions: total,
       currentQuestion: toCurrent(q1),
       startedAt: null,
       rankingId: null,
@@ -163,7 +166,8 @@ export async function revealAnswer(db: Firestore, eventId: string, dayId: string
     }
     const reveal: Record<string, unknown> = { questionId: q.id, type: q.type, explanation: priv.explanation ?? '' }
     if (q.type === 'multiple_choice') reveal.correctChoiceId = priv.correctChoiceId
-    else reveal.correctOrderIds = priv.correctOrderIds
+    else if (q.type === 'ordering') reveal.correctOrderIds = priv.correctOrderIds
+    else reveal.acceptedAnswers = priv.acceptedAnswers ?? []
     tx.set(p.reveal(db, eventId, dayId, q.id), { ...reveal, revealedAt: serverTimestamp() })
     tx.update(p.day(db, eventId, dayId), { phase: 'revealed', updatedAt: serverTimestamp() })
   })
@@ -214,7 +218,7 @@ export async function hostNext(db: Firestore, eventId: string, dayId: string, ex
   if (day.phase !== expected.phase || day.questionPosition !== expected.questionPosition)
     throw new StaleError('すでに進んでいます')
   const pos = day.questionPosition
-  const goInterim = day.phase === 'revealed' && settings.interimAfter.includes(pos) && pos < day.totalQuestions
+  const goInterim = day.phase === 'revealed' && interimPositions(day.totalQuestions, settings.interimMode).includes(pos)
   const goFinish = day.phase === 'revealed' && pos >= day.totalQuestions
   const nextQ = !goInterim && !goFinish ? await loadPublicQuestion(db, eventId, pos + 1) : null
   const rankingId = goInterim ? `interim-${pos}` : goFinish ? 'day-final' : null

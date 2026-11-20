@@ -19,3 +19,16 @@ export function teamNameDocId(scope: 'day' | 'event', dayId: string, nameKey: st
 export function answerDocId(teamId: string, questionId: string): string {
   return `${teamId}__${questionId}`
 }
+
+/**
+ * 自由記述の答え合わせ用キー。
+ * 全角/半角・大文字/小文字・カタカナ/ひらがな・空白・句読点や記号の違いは同じとみなす。
+ * 漢字とかなの違い(林檎/りんご)は同じにならないので、正解の書き方を複数登録する。
+ */
+export function answerKey(text: string): string {
+  return text
+    .normalize('NFKC')
+    .toLowerCase()
+    .replace(/[\u30a1-\u30f6]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0x60))
+    .replace(/[\s、。,.・!?！？「」『』()（）"'`~〜:]/g, '')
+}

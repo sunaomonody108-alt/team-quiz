@@ -1,5 +1,5 @@
 import { assertFails, assertSucceeds, type RulesTestEnvironment } from '@firebase/rules-unit-testing'
-import { getDoc } from 'firebase/firestore'
+import { doc, getDoc } from 'firebase/firestore'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import {
   closeQuestion,
@@ -46,6 +46,8 @@ function answerFor(qi: number, correct: boolean) {
 
 describe('1日分の通し進行(10チーム・20問)', () => {
   it('T03/T06/T07/T11/T12/T19: 共通締切・二重操作防止・途中順位・終了順位', async () => {
+    // 20問の大会は「5問ごと」に途中順位を出す設定で確認する
+    await ownerDb().doc(`events/${E}`).update({ 'settings.interimMode': 'every5' })
     const admin = adminDb(env)
     await setRegistration(admin, E, 'day1', true)
     const teams = Array.from({ length: 10 }, (_, i) => `team${String(i).padStart(2, '0')}`)
@@ -184,5 +186,39 @@ describe('問題のロック', () => {
     await startQuiz(admin, E, 'day1')
     const { setDoc } = await import('firebase/firestore')
     await assertFails(setDoc(p.qPriv(admin, E, 'q01'), { explanation: '書き換え' }))
+  })
+})
+
+describe('自由記述・少ない問題数', () => {
+  it('6問で開始すると全6問扱い。自由記述は表記ゆれ込みで採点され、正解は発表まで読めない', async () => {
+    const qs = [
+      { position: 1, type: 'text_input', prompt: '謎', acceptedAnswers: ['りんご', '林檎'], explanation: '解説' },
+      ...MOCK_QUESTIONS.slice(1, 6),
+    ]
+    const admin = adminDb(env)
+    await seed(env, 2, {}, qs)
+    await setRegistration(admin, E, 'day1', true)
+    for (const u of ['u1', 'u2', 'u3']) await registerTeam(teamDb(env, u), E, 'day1', u, u, ['a', 'b', 'c'])
+    await startQuiz(admin, E, 'day1')
+    expect((await dayOf()).totalQuestions).toBe(6)
+    expect((await dayOf()).currentQuestion?.choiceIds).toEqual([])
+    await startQuestion(admin, E, 'day1')
+    const t1 = teamDb(env, 'u1')
+    await assertSucceeds(submitAnswer(t1, E, 'day1', 'u1', 1, { questionId: 'q01', text: 'リンゴ' }))
+    await assertSucceeds(submitAnswer(teamDb(env, 'u2'), E, 'day1', 'u2', 1, { questionId: 'q01', text: 'みかん' }))
+    // 長すぎる答え・選択肢IDでの回答は保存できない
+    await assertFails(submitAnswer(t1, E, 'day1', 'u1', 2, { questionId: 'q01', text: 'あ'.repeat(41) }))
+    await assertFails(submitAnswer(t1, E, 'day1', 'u1', 3, { questionId: 'q01', choiceId: 'c1' }))
+    // 発表前は正解を読めない
+    await assertFails(getDoc(doc(t1, `events/${E}/questionsPrivate/q01`)))
+    await sleep(2300)
+    await closeQuestion(admin, E, 'day1')
+    await revealAnswer(admin, E, 'day1')
+    const mark = async (u: string) => (await ownerDb().doc(`events/${E}/days/day1/marks/${u}__q01`).get()).data()
+    expect(await mark('u1')).toMatchObject({ answered: true, isCorrect: true })
+    expect(await mark('u2')).toMatchObject({ answered: true, isCorrect: false })
+    expect(await mark('u3')).toMatchObject({ answered: false, isCorrect: false })
+    const rev = (await ownerDb().doc(`events/${E}/days/day1/reveals/q01`).get()).data()
+    expect(rev?.acceptedAnswers).toEqual(['りんご', '林檎'])
   })
 })

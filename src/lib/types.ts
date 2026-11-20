@@ -1,6 +1,6 @@
 import type { Timestamp } from 'firebase/firestore'
 
-export type QuestionType = 'multiple_choice' | 'ordering'
+export type QuestionType = 'multiple_choice' | 'ordering' | 'text_input'
 
 export interface Choice {
   id: string
@@ -23,6 +23,8 @@ export interface PublicQuestion {
 export interface PrivateQuestion {
   correctChoiceId?: string
   correctOrderIds?: string[]
+  /** 自由記述の正解(表記ゆれを複数登録できる。かな/カナ・全角半角・空白は自動で同一視) */
+  acceptedAnswers?: string[]
   explanation: string
   difficulty?: string
   genre?: string
@@ -58,13 +60,17 @@ export interface DayState {
   updatedAt?: Timestamp
 }
 
+export type InterimMode = 'none' | 'half' | 'every5'
+
 export interface EventSettings {
   /** [未決定] 正解発表後、スマホに正解と解説まで出すか(false なら正誤のみ) */
   showExplanationOnPhone: boolean
   /** [未決定] チーム名の重複判定範囲 */
   teamNameScope: 'day' | 'event'
-  /** [確定] 途中順位を挟む問題番号 */
+  /** 旧仕様(20問固定)の途中順位の問題番号。interimMode が無い古いデータ用に残す */
   interimAfter: number[]
+  /** 途中順位の出し方: none=出さない / half=真ん中で1回 / every5=5問ごと。未設定は half */
+  interimMode?: InterimMode
   /** [確定] 会場に出す順位の範囲(途中・1日目終了) */
   venueTopRank: number
   /** [未決定] 総合結果を会場に何位まで出すか(Phase 2 で使用) */
@@ -90,6 +96,7 @@ export interface AnswerDoc {
   questionId: string
   choiceId?: string
   orderIds?: string[]
+  text?: string
   revision: number
   updatedAt: Timestamp
 }
@@ -114,6 +121,7 @@ export interface RevealDoc {
   type: QuestionType
   correctChoiceId?: string
   correctOrderIds?: string[]
+  acceptedAnswers?: string[]
   explanation: string
 }
 

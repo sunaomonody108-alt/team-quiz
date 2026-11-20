@@ -126,7 +126,10 @@ service cloud.firestore {
         // 回答。ID = チームID + "__" + 問題ID
         match /answers/{aid} {
           function validAnswer(q, a) {
-            return q.type == 'multiple_choice'
+            return q.type == 'text_input'
+              ? (a.keys().hasOnly(['teamId', 'questionId', 'text', 'revision', 'updatedAt'])
+                  && a.text is string && a.text.size() >= 1 && a.text.size() <= 40)
+              : q.type == 'multiple_choice'
               ? (a.keys().hasOnly(['teamId', 'questionId', 'choiceId', 'revision', 'updatedAt'])
                   && a.choiceId is string && a.choiceId in q.choiceIds)
               : (a.keys().hasOnly(['teamId', 'questionId', 'orderIds', 'revision', 'updatedAt'])

@@ -1,5 +1,7 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { CHOICE_MARKS } from '../lib/marks'
+import { MAX_TEXT_ANSWER } from '../lib/config'
+import { clock } from '../components/QuestionView'
 import { useParams } from 'react-router-dom'
 import { Button, Card, Field, Notice, Screen } from '../components/ui'
 import { deadlineMs } from '../lib/clock'
@@ -159,7 +161,7 @@ function AnswerPanel({ dayId, uid, day }: { dayId: string; uid: string; day: Day
   const [send, setSend] = useState<SendState>('idle')
   const latest = useRef(0)
 
-  async function send_(payload: { choiceId?: string; orderIds?: string[] }) {
+  async function send_(payload: { choiceId?: string; orderIds?: string[]; text?: string }) {
     if (timeUp) return
     const rev = nextRevision()
     latest.current = rev
@@ -179,7 +181,7 @@ function AnswerPanel({ dayId, uid, day }: { dayId: string; uid: string; day: Day
       <div className="flex items-center justify-between">
         <span className="rounded-full bg-blue-600 px-4 py-1 text-lg font-black text-white">第{q.position}問</span>
         <span className={`text-4xl font-black tabular-nums ${remaining <= 5000 ? 'text-red-600' : 'text-blue-700'}`}>
-          {Math.max(0, Math.ceil(remaining / 1000))}秒
+          {remaining >= 60000 ? clock(Math.ceil(remaining / 1000)) : `${Math.max(0, Math.ceil(remaining / 1000))}秒`}
         </span>
       </div>
       <p className="text-xl leading-relaxed font-bold whitespace-pre-wrap">{q.prompt}</p>
@@ -203,6 +205,8 @@ function AnswerPanel({ dayId, uid, day }: { dayId: string; uid: string; day: Day
             )
           })}
         </div>
+      ) : q.type === 'text_input' ? (
+        <TextInput key={q.id} saved={serverAnswer?.text} disabled={timeUp} onSubmit={(text) => send_({ text })} />
       ) : (
         <OrderingInput
           choices={q.choices}
@@ -283,10 +287,37 @@ function OrderingInput({
   )
 }
 
+function TextInput({ saved, disabled, onSubmit }: { saved?: string; disabled: boolean; onSubmit: (text: string) => void }) {
+  const [text, setText] = useState(saved ?? '')
+  // 再読み込み直後など、保存済みの答えが後から届いたら入力欄に入れる
+  useEffect(() => { if (saved !== undefined) setText((cur) => cur || saved) }, [saved])
+  const t = text.trim()
+  const same = saved !== undefined && saved === t
+  return (
+    <form className="space-y-3" onSubmit={(e) => { e.preventDefault(); if (t) onSubmit(t) }}>
+      <input
+        className="w-full rounded-2xl border-2 border-blue-200 bg-white px-4 py-4 text-2xl font-bold"
+        value={text}
+        maxLength={MAX_TEXT_ANSWER}
+        disabled={disabled}
+        onChange={(e) => setText(e.target.value)}
+        placeholder="答えを入力"
+        aria-label="答え"
+        autoComplete="off"
+      />
+      <p className="text-sm text-slate-600">ひらがな・カタカナ・全角半角の違いは気にしなくて大丈夫です。締切までは何度でも送り直せます。</p>
+      <Button big className="w-full" disabled={disabled || !t || same}>
+        {same ? 'この答えで回答済み' : saved ? 'この答えに変更する' : 'この答えで回答'}
+      </Button>
+    </form>
+  )
+}
+
 function AnswerText({ day, answer }: { day: DayState; answer: AnswerDoc | null }) {
   const q = day.currentQuestion!
   if (!answer) return <p className="text-xl font-bold text-slate-500">未回答</p>
   const label = (id: string) => q.choices.find((c) => c.id === id)?.label ?? '?'
+  if (q.type === 'text_input') return <p className="text-2xl font-black break-all">{answer.text}</p>
   if (q.type === 'multiple_choice') return <p className="text-2xl font-black">{label(answer.choiceId!)}</p>
   return (
     <ol className="list-decimal space-y-1 pl-6 text-left text-xl font-bold">
@@ -330,7 +361,9 @@ function RevealPanel({ dayId, uid, day, showExplanation }: { dayId: string; uid:
       {showExplanation && reveal.data && (
         <div className="space-y-2 rounded-2xl bg-blue-50 p-4 text-left">
           <p className="text-sm font-bold text-blue-700">正解</p>
-          {reveal.data.correctChoiceId ? (
+          {reveal.data.acceptedAnswers ? (
+            <p className="text-xl font-black">{reveal.data.acceptedAnswers.join(' / ')}</p>
+          ) : reveal.data.correctChoiceId ? (
             <p className="text-xl font-black">{label(reveal.data.correctChoiceId)}</p>
           ) : (
             <ol className="list-decimal pl-6 text-lg font-bold">

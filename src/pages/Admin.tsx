@@ -1,3 +1,5 @@
+import { formatSec, TYPE_LABEL } from '../lib/config'
+import type { InterimMode } from '../lib/types'
 import { signOut } from 'firebase/auth'
 import { getDocs } from 'firebase/firestore'
 import { useEffect, useState } from 'react'
@@ -186,6 +188,15 @@ function Settings({ ev }: { ev: EventDoc }) {
           <option value="event">2日間通して</option>
         </select>
       </label>
+      <label className="flex items-center gap-3">
+        途中順位:
+        <select className="rounded-lg border px-2 py-1" value={s.interimMode ?? 'half'}
+          onChange={(e) => a.run(() => updateSettings(db, E, { interimMode: e.target.value as InterimMode }))}>
+          <option value="half">真ん中で1回(6問なら3問目の後)</option>
+          <option value="every5">5問ごと(20問向け)</option>
+          <option value="none">出さない</option>
+        </select>
+      </label>
       <p className="text-sm text-slate-500">重複チェックの範囲は、1日目の受付を始める前に決めてください(途中で変えると判定がずれます)。</p>
       {a.view}
     </Card>
@@ -206,7 +217,7 @@ function Questions({ locked }: { locked: boolean }) {
   return (
     <Card className="space-y-4">
       <div className="flex items-center justify-between">
-        <h2 className="text-xl font-black">問題({list?.length ?? '–'}/20問)</h2>
+        <h2 className="text-xl font-black">問題({list?.length ?? '–'}問)</h2>
         {locked ? (
           <span className="rounded-full bg-amber-100 px-3 py-1 text-sm font-bold text-amber-800">ロック中(1日目開始済み)</span>
         ) : (
@@ -226,7 +237,7 @@ function Questions({ locked }: { locked: boolean }) {
       )}
       <div className="space-y-2">
         <p className="text-sm text-slate-600">
-          問題はJSON(下の形式)で一括登録します。ChatGPTに「この形式で20問作って」と頼んだ結果をそのまま貼れます。形式は README を参照。
+          問題はJSON(下の形式)で一括登録します。問題数は3〜20問。制限時間は durationSec(秒)で問題ごとに指定でき、省略すると4択20秒・並べ替え30秒・自由記述3分です。形式は README を参照。
         </p>
         <label className="block text-sm">
           <span className="font-bold">JSONファイルを選ぶ:</span>{' '}
@@ -264,11 +275,11 @@ function Questions({ locked }: { locked: boolean }) {
           {list.map(({ pub, priv }) => (
             <li key={pub.id} className="rounded-xl bg-slate-50 p-3 text-sm">
               <p className="font-bold">
-                Q{pub.position} [{pub.type === 'ordering' ? '並べ替え 30秒' : '4択 20秒'}] {pub.prompt}
+                Q{pub.position} [{TYPE_LABEL[pub.type]} {formatSec(pub.durationSec)}] {pub.prompt}
               </p>
               {pub.imageUrl && <img src={pub.imageUrl} alt={pub.imageAlt ?? ''} className="my-1 h-24 rounded border bg-white object-contain" />}
               <p className="text-slate-600">
-                正解:{pub.type === 'multiple_choice' ? label(pub, priv?.correctChoiceId) : priv?.correctOrderIds?.map((id) => label(pub, id)).join(' → ')}
+                正解:{pub.type === 'text_input' ? (priv?.acceptedAnswers ?? []).join(' / ') : pub.type === 'multiple_choice' ? label(pub, priv?.correctChoiceId) : priv?.correctOrderIds?.map((id) => label(pub, id)).join(' → ')}
                 {priv?.explanation ? ` / 解説:${priv.explanation}` : ''}
               </p>
             </li>
